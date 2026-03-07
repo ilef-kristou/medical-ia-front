@@ -36,41 +36,42 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-    environment {
-        SONAR_TOKEN = credentials('SONAR_TOKEN')
-    }
-    steps {
-        sh """
-            docker run --rm \
-                --network devops-net \
-                -e SONAR_HOST_URL=${SONAR_URL} \
-                -e SONAR_TOKEN=\${SONAR_TOKEN} \
-                -v \${WORKSPACE}:/usr/src \
-                sonarsource/sonar-scanner-cli \
-                -Dsonar.projectKey=medical-ia-front \
-                -Dsonar.sources=. \
-                -Dsonar.exclusions=node_modules/**,.next/**,**/*.test.js,**/*.spec.js
-        """
-   
+            environment {
+                SONAR_TOKEN = credentials('SONAR_TOKEN')
+            }
+            steps {
+                sh """
+                    docker run --rm \
+                        --network devops-net \
+                        -e SONAR_HOST_URL=${SONAR_URL} \
+                        -e SONAR_TOKEN=\${SONAR_TOKEN} \
+                        -v \${WORKSPACE}:/usr/src \
+                        sonarsource/sonar-scanner-cli \
+                        -Dsonar.projectKey=medical-ia-front \
+                        -Dsonar.sources=. \
+                        -Dsonar.exclusions=node_modules/**,.next/**,**/*.test.js,**/*.spec.js
+                """
+            }
+        }
 
         stage('Trivy Filesystem Scan') {
-    steps {
-        sh """
-            docker run --rm \
-                -v \${WORKSPACE}:/project \
-                aquasec/trivy:latest fs \
-                --severity HIGH,CRITICAL \
-                --exit-code 0 \
-                --no-progress \
-                --timeout 20m \
-                --db-repository ghcr.io/aquasecurity/trivy-db:2 \
-                --format table \
-                -o /project/trivy-fs-report.txt \
-                /project || echo "Aucune vulnérabilité trouvée" > \${WORKSPACE}/trivy-fs-report.txt
-        """
-        archiveArtifacts artifacts: 'trivy-fs-report.txt', allowEmptyArchive: true
-    }
-}
+            steps {
+                sh """
+                    docker run --rm \
+                        -v \${WORKSPACE}:/project \
+                        aquasec/trivy:latest fs \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        --no-progress \
+                        --timeout 20m \
+                        --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+                        --format table \
+                        -o /project/trivy-fs-report.txt \
+                        /project || echo "Aucune vulnérabilité trouvée" > \${WORKSPACE}/trivy-fs-report.txt
+                """
+                archiveArtifacts artifacts: 'trivy-fs-report.txt', allowEmptyArchive: true
+            }
+        }
 
         stage('Build & Tag Docker Image') {
             steps {
