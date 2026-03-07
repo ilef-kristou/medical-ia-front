@@ -2,11 +2,8 @@ pipeline {
     agent any
 
     environment {
-        registry = "ilefkristou/medical-ia-front"
-        registryCredential = 'dockerHub'
         dockerImage = ''
         SONAR_URL = "http://sonarqube:9000"
-        IMAGE_NAME = "${registry}:${BUILD_NUMBER}"
     }
 
     stages {
@@ -22,6 +19,7 @@ pipeline {
                 sh 'npm install'
             }
         }
+
         stage('Run Tests') {
             steps {
                 sh 'npm run test -- --watchAll=false --passWithNoTests'
@@ -78,31 +76,47 @@ pipeline {
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    dockerImage = docker.build("${IMAGE_NAME}", ".")
-                    dockerImage.tag('latest')
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerHub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def imageName = "${DOCKER_USER}/medical-ia-front:${BUILD_NUMBER}"
+                        dockerImage = docker.build("${imageName}", ".")
+                        dockerImage.tag('latest')
+                    }
                 }
             }
         }
 
         stage('Trivy Image Scan') {
             steps {
-                sh """
-                    docker run --rm \
-                        -v /var/run/docker.sock:/var/run/docker.sock \
-                        -v \${WORKSPACE}:/workspace \
-                        aquasec/trivy:latest image \
-                        --severity HIGH,CRITICAL \
-                        --exit-code 0 \
-                        --no-progress \
-                        --timeout 20m \
-                        --db-repository ghcr.io/aquasecurity/trivy-db:2 \
-                        --format table \
-                        -o /workspace/trivy-image-report.txt \
-                        ${IMAGE_NAME} || echo "Aucune vulnérabilité HIGH/CRITICAL trouvée" > /workspace/trivy-image-report.txt
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerHub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def imageName = "${DOCKER_USER}/medical-ia-front:${BUILD_NUMBER}"
+                        sh """
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                -v \${WORKSPACE}:/workspace \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --exit-code 0 \
+                                --no-progress \
+                                --timeout 20m \
+                                --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+                                --format table \
+                                -o /workspace/trivy-image-report.txt \
+                                ${imageName} || echo "Aucune vulnérabilité HIGH/CRITICAL trouvée" > /workspace/trivy-image-report.txt
 
-                    echo "=== Résultat Trivy Image Scan ==="
-                    cat /workspace/trivy-image-report.txt || echo "Rapport vide"
-                """
+                            echo "=== Résultat Trivy Image Scan ==="
+                            cat /workspace/trivy-image-report.txt || echo "Rapport vide"
+                        """
+                    }
+                }
                 archiveArtifacts artifacts: 'trivy-image-report.txt', allowEmptyArchive: true
             }
         }
@@ -110,9 +124,15 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('', registryCredential) {
-                        dockerImage.push()
-                        dockerImage.push('latest')
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerHub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def imageName = "${DOCKER_USER}/medical-ia-front:${BUILD_NUMBER}"
+                        sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}"
+                        sh "docker push ${imageName}"
+                        sh "docker push ${DOCKER_USER}/medical-ia-front:latest"
                     }
                 }
             }
@@ -121,16 +141,22 @@ pipeline {
         stage('Deploy Application') {
             steps {
                 script {
-                    sh 'docker stop medical-ia-front || true'
-                    sh 'docker rm medical-ia-front || true'
-
-                    sh """
-                        docker run -d \
-                            --name medical-ia-front \
-                            --network devops-net \
-                            -p 3001:3000 \
-                            ${IMAGE_NAME}
-                    """
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerHub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def imageName = "${DOCKER_USER}/medical-ia-front:${BUILD_NUMBER}"
+                        sh 'docker stop medical-ia-front || true'
+                        sh 'docker rm medical-ia-front || true'
+                        sh """
+                            docker run -d \
+                                --name medical-ia-front \
+                                --network devops-net \
+                                -p 3001:3000 \
+                                ${imageName}
+                        """
+                    }
                 }
             }
         }
@@ -152,18 +178,26 @@ pipeline {
     post {
         success {
             echo "✅ Pipeline frontend terminé avec succès - Build ${BUILD_NUMBER} déployé"
-            mail to: 'ilefkristou992@gmail.com',
+            mail to: "${EMAIL}",
                  subject: "✅ Build ${BUILD_NUMBER} - SUCCESS",
                  body: "Le pipeline medical-ia-front a réussi.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
         failure {
             echo "❌ Pipeline frontend échoué - Build ${BUILD_NUMBER}"
-            mail to: 'ilefkristou992@gmail.com',
+            mail to: "${EMAIL}",
                  subject: "❌ Build ${BUILD_NUMBER} - FAILURE",
                  body: "Le pipeline medical-ia-front a échoué.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
         always {
-            sh "docker rmi ${IMAGE_NAME} || true"
+            script {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerHub',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "docker rmi ${DOCKER_USER}/medical-ia-front:${BUILD_NUMBER} || true"
+                }
+            }
         }
     }
 }
