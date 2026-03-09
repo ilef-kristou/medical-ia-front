@@ -74,7 +74,7 @@ pipeline {
         docker {
             image 'node:24-alpine'
             reuseNode true
-            args '--network devops-net' // si Nexus est dans Docker
+            args '--network devops-net'
         }
     }
     steps {
@@ -84,19 +84,27 @@ pipeline {
             passwordVariable: 'NEXUS_PASS'
         )]) {
             sh '''
-                # Installer jq pour modifier package.json
-                apk add --no-cache jq
+                apk add --no-cache jq coreutils   # coreutils for base64 on alpine
 
-                # S'assurer que le package n'est pas private
-                jq '.private=false' package.json > package.temp.json && mv package.temp.json package.json
+                # Make package public
+                jq '.private = false' package.json > package.temp.json && mv package.temp.json package.json
 
-                # Config npm pour Nexus
-                npm set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
-                echo "//nexus:8081/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ${WORKSPACE}/.npmrc
-                echo "always-auth=true" >> ${WORKSPACE}/.npmrc
+                # Create correct .npmrc with base64 auth
+                AUTH=$(echo -n "${NEXUS_USER}:${NEXUS_PASS}" | base64 | tr -d '\n')
+                cat > .npmrc << EOF
+//nexus:8081/repository/${NEXUS_REPOSITORY}/:_auth=\${AUTH}
+always-auth=true
+EOF
 
-                # Publier
-                npm publish --registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
+                # Optional: also set registry globally for this session
+                npm config set registry http://nexus:8081/repository/${NEXUS_REPOSITORY}/
+
+                # Debug (remove in production)
+                cat .npmrc || true
+                npm config list || true
+
+                # Publish
+                npm publish --verbose
             '''
         }
     }
