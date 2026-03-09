@@ -74,7 +74,7 @@ pipeline {
         docker {
             image 'node:24-alpine'
             reuseNode true
-            args '--network devops-net' // <-- Important si Nexus est dans Docker
+            args '--network devops-net' // si Nexus est dans Docker
         }
     }
     steps {
@@ -84,19 +84,23 @@ pipeline {
             passwordVariable: 'NEXUS_PASS'
         )]) {
             sh '''
-                npm set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
-                echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ${WORKSPACE}/.npmrc
-                echo "always-auth=true" >> ${WORKSPACE}/.npmrc
+                # Installer jq pour modifier package.json
+                apk add --no-cache jq
 
-                # Vérifier que le package n'est pas private
+                # S'assurer que le package n'est pas private
                 jq '.private=false' package.json > package.temp.json && mv package.temp.json package.json
 
+                # Config npm pour Nexus
+                npm set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
+                echo "//nexus:8081/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ${WORKSPACE}/.npmrc
+                echo "always-auth=true" >> ${WORKSPACE}/.npmrc
+
+                # Publier
                 npm publish --registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
             '''
         }
     }
 }
-
         stage('Build & Tag Docker Image') {
             steps {
                 script {
