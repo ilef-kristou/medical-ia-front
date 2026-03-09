@@ -1,7 +1,6 @@
 {
   "name": "medical_ia_front",
   "version": "0.1.0",
-  "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
