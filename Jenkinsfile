@@ -74,6 +74,7 @@ pipeline {
         docker {
             image 'node:24-alpine'
             reuseNode true
+            args '--network devops-net' // <-- Important si Nexus est dans Docker
         }
     }
     steps {
@@ -83,12 +84,13 @@ pipeline {
             passwordVariable: 'NEXUS_PASS'
         )]) {
             sh '''
-                # Utiliser le .npmrc local dans le workspace pour l'authentification
                 npm set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
                 echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ${WORKSPACE}/.npmrc
                 echo "always-auth=true" >> ${WORKSPACE}/.npmrc
 
-                # Publier le package sur Nexus
+                # Vérifier que le package n'est pas private
+                jq '.private=false' package.json > package.temp.json && mv package.temp.json package.json
+
                 npm publish --registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
             '''
         }
