@@ -83,12 +83,13 @@ pipeline {
             passwordVariable: 'NEXUS_PASS'
         )]) {
             sh '''
-                # Configure npm pour le repo Nexus
-                npm config set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
-                echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ~/.npmrc
+                # Utiliser le .npmrc local dans le workspace pour l'authentification
+                npm set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
+                echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ${WORKSPACE}/.npmrc
+                echo "always-auth=true" >> ${WORKSPACE}/.npmrc
 
                 # Publier le package sur Nexus
-                npm publish
+                npm publish --registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
             '''
         }
     }
@@ -216,7 +217,7 @@ pipeline {
         }
         failure {
             echo "❌ Pipeline frontend échoué - Build ${BUILD_NUMBER}"
-            mail to: "${MAIL}",
+            mail to: "${EMAIL}",
                  subject: "❌ Build ${BUILD_NUMBER} - FAILURE",
                  body: "Le pipeline medical-ia-front a échoué.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
