@@ -5,7 +5,7 @@ pipeline {
         dockerImage = ''
         SONAR_URL = "http://sonarqube:9000"
         NEXUS_URL = "http://nexus:8081"
-        NEXUS_REPOSITORY = "npm-snapshots"
+        NEXUS_REPOSITORY = "npm-snapshots"  // <- mettre ton repo npm-hosted ici
         NEXUS_CREDENTIALS_ID = "nexus-credentials"
     }
 
@@ -69,40 +69,21 @@ pipeline {
             }
         }
 
-        stage('Package Artifact') {
-    agent {
-        docker {
-            image 'node:24-alpine'
-            reuseNode true
-        }
-    }
-    steps {
-        sh '''
-            rm -rf dist-artifacts
-            mkdir -p dist-artifacts
-            npm pack --pack-destination dist-artifacts
-        '''
-        archiveArtifacts artifacts: 'dist-artifacts/*.tgz', fingerprint: true
-    }
-}
-
-        stage('Nexus Upload') {
+        stage('Publish to Nexus (NPM)') {
             steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    withCredentials([usernamePassword(
-                        credentialsId: "${NEXUS_CREDENTIALS_ID}",
-                        usernameVariable: 'NEXUS_USER',
-                        passwordVariable: 'NEXUS_PASS'
-                    )]) {
-                        sh '''
-                            set -eu
-                            ARTIFACT_PATH="$(ls -1 dist-artifacts/*.tgz | head -n 1)"
-                            ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
-                            UPLOAD_URL="${NEXUS_URL%/}/repository/${NEXUS_REPOSITORY}/${ARTIFACT_NAME}"
-                            curl -fsS -u "${NEXUS_USER}:${NEXUS_PASS}" --upload-file "$ARTIFACT_PATH" "$UPLOAD_URL"
-                            echo "Uploaded $ARTIFACT_NAME to $UPLOAD_URL"
-                        '''
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: "${NEXUS_CREDENTIALS_ID}",
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh '''
+                        # Configure npm pour le repo Nexus
+                        npm config set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
+                        echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ~/.npmrc
+
+                        # Publier le package sur Nexus
+                        npm publish
+                    '''
                 }
             }
         }
