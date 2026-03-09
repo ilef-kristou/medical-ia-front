@@ -4,6 +4,9 @@ pipeline {
     environment {
         dockerImage = ''
         SONAR_URL = "http://sonarqube:9000"
+        NEXUS_URL = "http://nexus:8081"
+        NEXUS_REPOSITORY = "npm-snapshots"
+        NEXUS_CREDENTIALS_ID = "nexus-credentials"
     }
 
     stages {
@@ -63,6 +66,38 @@ pipeline {
                         /project || echo "Aucune vulnérabilité trouvée" > \${WORKSPACE}/trivy-fs-report.txt
                 """
                 archiveArtifacts artifacts: 'trivy-fs-report.txt', allowEmptyArchive: true
+            }
+        }
+
+        stage('Package Artifact') {
+            steps {
+                sh '''
+                    rm -rf dist-artifacts
+                    mkdir -p dist-artifacts
+                    npm pack --pack-destination dist-artifacts
+                '''
+                archiveArtifacts artifacts: 'dist-artifacts/*.tgz', fingerprint: true
+            }
+        }
+
+        stage('Nexus Upload') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    withCredentials([usernamePassword(
+                        credentialsId: "${NEXUS_CREDENTIALS_ID}",
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS'
+                    )]) {
+                        sh '''
+                            set -eu
+                            ARTIFACT_PATH="$(ls -1 dist-artifacts/*.tgz | head -n 1)"
+                            ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
+                            UPLOAD_URL="${NEXUS_URL%/}/repository/${NEXUS_REPOSITORY}/${ARTIFACT_NAME}"
+                            curl -fsS -u "${NEXUS_USER}:${NEXUS_PASS}" --upload-file "$ARTIFACT_PATH" "$UPLOAD_URL"
+                            echo "Uploaded $ARTIFACT_NAME to $UPLOAD_URL"
+                        '''
+                    }
+                }
             }
         }
 
@@ -182,13 +217,13 @@ pipeline {
     post {
         success {
             echo "✅ Pipeline frontend terminé avec succès - Build ${BUILD_NUMBER} déployé"
-            mail to: "${EMAIL}",
+            mail to: "${TEAM_EMAIL}",
                  subject: "✅ Build ${BUILD_NUMBER} - SUCCESS",
                  body: "Le pipeline medical-ia-front a réussi.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
         failure {
             echo "❌ Pipeline frontend échoué - Build ${BUILD_NUMBER}"
-            mail to: "${EMAIL}",
+            mail to: "${TEAM_EMAIL}",
                  subject: "❌ Build ${BUILD_NUMBER} - FAILURE",
                  body: "Le pipeline medical-ia-front a échoué.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
