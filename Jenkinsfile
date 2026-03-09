@@ -69,24 +69,30 @@ pipeline {
             }
         }
 
-        stage('Publish to Nexus (NPM)') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: "${NEXUS_CREDENTIALS_ID}",
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
-                    sh '''
-                        # Configure npm pour le repo Nexus
-                        npm config set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
-                        echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ~/.npmrc
-
-                        # Publier le package sur Nexus
-                        npm publish
-                    '''
-                }
-            }
+        stage('Publish to Nexus') {
+    agent {
+        docker {
+            image 'node:24-alpine'
+            reuseNode true
         }
+    }
+    steps {
+        withCredentials([usernamePassword(
+            credentialsId: "${NEXUS_CREDENTIALS_ID}",
+            usernameVariable: 'NEXUS_USER',
+            passwordVariable: 'NEXUS_PASS'
+        )]) {
+            sh '''
+                # Configure npm pour le repo Nexus
+                npm config set registry ${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/
+                echo "//${NEXUS_URL#http://}/repository/${NEXUS_REPOSITORY}/:_auth=${NEXUS_USER}:${NEXUS_PASS}" > ~/.npmrc
+
+                # Publier le package sur Nexus
+                npm publish
+            '''
+        }
+    }
+}
 
         stage('Build & Tag Docker Image') {
             steps {
@@ -204,13 +210,13 @@ pipeline {
     post {
         success {
             echo "✅ Pipeline frontend terminé avec succès - Build ${BUILD_NUMBER} déployé"
-            mail to: "${TEAM_EMAIL}",
+            mail to: "${EMAIL}",
                  subject: "✅ Build ${BUILD_NUMBER} - SUCCESS",
                  body: "Le pipeline medical-ia-front a réussi.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
         failure {
             echo "❌ Pipeline frontend échoué - Build ${BUILD_NUMBER}"
-            mail to: "${TEAM_EMAIL}",
+            mail to: "${MAIL}",
                  subject: "❌ Build ${BUILD_NUMBER} - FAILURE",
                  body: "Le pipeline medical-ia-front a échoué.\n\nBuild: ${BUILD_NUMBER}\nURL: ${BUILD_URL}"
         }
