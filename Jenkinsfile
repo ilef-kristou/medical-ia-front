@@ -70,15 +70,21 @@ pipeline {
         }
 
         stage('Package Artifact') {
-            steps {
-                sh '''
-                    rm -rf dist-artifacts
-                    mkdir -p dist-artifacts
-                    npm pack --pack-destination dist-artifacts
-                '''
-                archiveArtifacts artifacts: 'dist-artifacts/*.tgz', fingerprint: true
-            }
+    agent {
+        docker {
+            image 'node:24-alpine'
+            reuseNode true
         }
+    }
+    steps {
+        sh '''
+            rm -rf dist-artifacts
+            mkdir -p dist-artifacts
+            npm pack --pack-destination dist-artifacts
+        '''
+        archiveArtifacts artifacts: 'dist-artifacts/*.tgz', fingerprint: true
+    }
+}
 
         stage('Nexus Upload') {
             steps {
