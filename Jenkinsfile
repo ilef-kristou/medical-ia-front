@@ -14,23 +14,16 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
-            agent { docker { image 'node:20-alpine' } }
+        stage('Install, Test & Build') {
+            agent {
+                docker {
+                    image 'node:20-alpine'
+                    reuseNode true
+                }
+            }
             steps {
                 sh 'npm install'
-            }
-        }
-
-        stage('Run Tests') {
-            agent { docker { image 'node:20-alpine' } }
-            steps {
                 sh 'npm run test -- --watchAll=false --passWithNoTests'
-            }
-        }
-
-        stage('Build Next.js') {
-            agent { docker { image 'node:20-alpine' } }
-            steps {
                 sh 'npm run build'
             }
         }
@@ -161,7 +154,7 @@ pipeline {
             }
         }
 
-        stage('Verify Deploy') {
+        stage('Verify Monitoring') {
             steps {
                 script {
                     sh 'sleep 15'
@@ -169,6 +162,17 @@ pipeline {
                         curl -f http://medical-ia-front:3000 \
                         && echo "✅ Frontend OK" \
                         || echo "❌ Frontend non disponible"
+                    """
+                    sh """
+                        curl -f http://medical-ia-front:3000/api/metrics \
+                        && echo "✅ Prometheus endpoint OK" \
+                        || echo "❌ Metrics endpoint non disponible"
+                    """
+                    sh """
+                        curl -s http://prometheus:9090/api/v1/targets \
+                        | grep medical-ia-front \
+                        && echo "✅ Prometheus scrape le front" \
+                        || echo "❌ Target non trouvée dans Prometheus"
                     """
                 }
             }
